@@ -1,0 +1,34 @@
+meta {
+  name: Partial Update Expense
+  type: http
+  seq: 6
+}
+
+put {
+  url: {{baseUrl}}/api/v1/expenses/{{expenseId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "amount": 200.00,
+    "currency": "BDT",
+    "description": "Partial update - amount, currency and description"
+  }
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has updated expense", function() {
+    expect(res.body.expense).to.be.an('object');
+    expect(res.body.expense.amount).to.equal(200.00);
+  });
+}

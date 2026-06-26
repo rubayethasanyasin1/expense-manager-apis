@@ -1,0 +1,30 @@
+meta {
+  name: Get Category Analytics with Filter
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/category-analytics?startDate=2025-12-01&endDate=2025-12-31
+  body: none
+  auth: bearer
+}
+
+params:query {
+  startDate: 2025-12-01
+  endDate: 2025-12-31
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has categoryAnalytics array", function() {
+    expect(res.body.categoryAnalytics).to.be.an('array');
+  });
+}

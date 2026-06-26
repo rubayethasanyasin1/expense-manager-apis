@@ -1,0 +1,136 @@
+# ==============================================================================
+# Multi-stage Dockerfile for Expenser APIs (Production)
+# ==============================================================================
+# Features:
+# - Multi-stage build for minimal image size
+# - Layer caching optimization with pnpm
+# - Security hardening (non-root user, minimal packages)
+# - Health checks and monitoring
+# - Production-ready configuration
+
+# Build arguments for customization
+ARG NODE_VERSION=20.18.1
+ARG PNPM_VERSION=9.15.0
+ARG PORT=3000
+
+# Stage 1: Dependencies
+FROM node:${NODE_VERSION}-alpine AS base
+
+# Install build dependencies for native modules
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    openssl \
+    libc6-compat \
+    && rm -rf /var/cache/apk/*
+
+# Install pnpm
+RUN npm install -g pnpm@9
+
+WORKDIR /app
+
+# Copy package files (separate layer for better caching)
+COPY package.json pnpm-lock.yaml ./
+
+# Install dependencies (production only) with BuildKit cache mount
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile --prod
+
+# Stage 2: Production Dependencies with Prisma
+FROM node:${NODE_VERSION}-alpine AS prod-deps
+
+# Install runtime dependencies
+RUN apk add --no-cache \
+    openssl \
+    libc6-compat \
+    && rm -rf /var/cache/apk/*
+
+# Install pnpm
+RUN npm install -g pnpm@9
+
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml ./
+
+# Copy Prisma schema
+COPY prisma ./prisma/
+
+# Install all dependencies first (including dev dependencies for Prisma CLI)
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm install --frozen-lockfile
+
+# Generate Prisma client
+RUN pnpm prisma:generate
+
+# Remove dev dependencies and reinstall production only
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    pnpm prune --prod
+
+# Stage 3: Runner (Final Production Image)
+FROM node:${NODE_VERSION}-alpine AS runner
+
+# Install minimal runtime dependencies and security tools
+RUN apk add --no-cache \
+    openssl \
+    libc6-compat \
+    curl \
+    wget \
+    dumb-init \
+    tini \
+    && rm -rf /var/cache/apk/*
+
+# Create app user and group for security
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 expressjs
+
+WORKDIR /app
+
+# Set environment variables
+ENV NODE_ENV=production \
+    PORT=3000 \
+    # Disable update checks
+    NO_UPDATE_NOTIFIER=true \
+    # Disable telemetry
+    NEXT_TELEMETRY_DISABLED=1
+
+# Copy package files
+COPY --from=prod-deps --chown=expressjs:nodejs /app/package.json ./package.json
+COPY --from=prod-deps --chown=expressjs:nodejs /app/pnpm-lock.yaml ./pnpm-lock.yaml
+
+# Copy Prisma schema
+COPY --from=prod-deps --chown=expressjs:nodejs /app/prisma ./prisma
+
+# Copy production dependencies (includes generated Prisma client)
+COPY --from=prod-deps --chown=expressjs:nodejs /app/node_modules ./node_modules
+
+# Copy application source code
+COPY --chown=expressjs:nodejs src ./src
+
+# Create directories for runtime data
+RUN mkdir -p uploads logs tmp && \
+    chown -R expressjs:nodejs uploads logs tmp
+
+# Add labels for metadata
+LABEL maintainer="@sakilahmmad71" \
+      org.opencontainers.image.title="Expenser API" \
+      org.opencontainers.image.description="Production-ready Expenser APIs" \
+      org.opencontainers.image.vendor="Expenser" \
+      org.opencontainers.image.source="https://github.com/sakilahmmad71/expense-manager-apis"
+
+# Switch to non-root user for security
+USER expressjs
+
+# Expose application port
+EXPOSE 3000
+
+# Health check with improved reliability
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD node -e "require('http').get('http://localhost:3000/api/v1/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})" || exit 1
+
+# Use tini as PID 1 to handle signals properly
+ENTRYPOINT ["/sbin/tini", "--"]
+
+# Start the application with optimized Node.js flags
+CMD ["node", "--enable-source-maps", "src/server.js"]

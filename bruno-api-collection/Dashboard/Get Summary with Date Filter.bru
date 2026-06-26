@@ -1,0 +1,30 @@
+meta {
+  name: Get Summary with Date Filter
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/summary?startDate=2025-12-01&endDate=2025-12-31
+  body: none
+  auth: bearer
+}
+
+params:query {
+  startDate: 2025-12-01
+  endDate: 2025-12-31
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has summary object", function() {
+    expect(res.body.summary).to.be.an('object');
+  });
+}

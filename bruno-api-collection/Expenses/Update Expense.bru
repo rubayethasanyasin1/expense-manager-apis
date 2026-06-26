@@ -1,0 +1,38 @@
+meta {
+  name: Update Expense
+  type: http
+  seq: 5
+}
+
+put {
+  url: {{baseUrl}}/api/v1/expenses/{{expenseId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "title": "Updated Grocery Shopping",
+    "amount": 150.75,
+    "currency": "EUR",
+    "categoryId": "{{categoryId}}",
+    "description": "Updated weekly grocery shopping",
+    "date": "2025-12-09"
+  }
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has updated expense", function() {
+    expect(res.body.expense).to.be.an('object');
+    expect(res.body.expense.title).to.equal('Updated Grocery Shopping');
+    expect(res.body.expense.amount).to.equal(150.75);
+  });
+}

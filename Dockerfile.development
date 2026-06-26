@@ -1,0 +1,73 @@
+# ==============================================================================
+# Development Dockerfile for Expenser APIs
+# ==============================================================================
+
+ARG NODE_VERSION=20.18.1
+ARG PNPM_VERSION=9.15.0
+
+###################
+## BASE TOOLING ##
+###################
+FROM node:${NODE_VERSION}-alpine AS base
+
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
+
+# Install build essentials for native modules and pnpm
+RUN apk add --no-cache \
+        python3 \
+        make \
+        g++ \
+        openssl \
+        libc6-compat \
+        curl \
+        bash && \
+    rm -rf /var/cache/apk/* && \
+    npm install -g pnpm@9
+
+WORKDIR /app
+
+##########
+## DEPS ##
+##########
+FROM base AS deps
+
+# Copy package manifests separately for better caching
+COPY package.json pnpm-lock.yaml ./
+
+# Copy Prisma schema
+COPY prisma ./prisma/
+
+# Install all dependencies including devDependencies with BuildKit cache mount
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+
+###################
+## DEVELOPMENT ##
+###################
+FROM base AS development
+
+ENV NODE_ENV=development \
+    CHOKIDAR_USEPOLLING=1 \
+    WATCHPACK_POLLING=true \
+    PORT=3000
+
+# Bring over installed dependencies (including generated Prisma client from postinstall)
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=deps /app/package.json ./package.json
+COPY --from=deps /app/pnpm-lock.yaml ./pnpm-lock.yaml
+
+# Copy Prisma schema
+COPY --from=deps /app/prisma ./prisma
+
+# Copy application source code
+COPY src ./src
+
+# Expose application port
+EXPOSE 3000
+
+# Expose debug port for VS Code debugging
+EXPOSE 9229
+
+# Regenerate Prisma client, apply migrations, and start Express with nodemon
+# Prisma client must be regenerated at runtime because volume mounts can overwrite it
+CMD [ "sh", "-c", "echo '🚀 Starting development environment...' && echo '🔧 Generating Prisma client...' && pnpm prisma:generate && echo '📦 Applying database migrations...' && pnpm prisma:deploy && echo '✅ Setup complete!' && echo '🔥 Starting Express with hot reload...' && pnpm dev" ]

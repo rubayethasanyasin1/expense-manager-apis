@@ -1,0 +1,26 @@
+meta {
+  name: Delete Expense
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{baseUrl}}/api/v1/expenses/{{expenseId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has success message", function() {
+    expect(res.body.message).to.be.a('string');
+    expect(res.body.message).to.include('deleted');
+  });
+}

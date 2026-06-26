@@ -1,0 +1,143 @@
+services:
+  # PostgreSQL Database - Production
+  postgres:
+    container_name: expense-manager-postgres-production
+    image: postgres:16-alpine
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      # PostgreSQL Performance Tuning (2GB RAM Server)
+      POSTGRES_SHARED_BUFFERS: 128MB
+      POSTGRES_EFFECTIVE_CACHE_SIZE: 384MB
+      POSTGRES_MAINTENANCE_WORK_MEM: 32MB
+      POSTGRES_CHECKPOINT_COMPLETION_TARGET: 0.9
+      POSTGRES_WAL_BUFFERS: 4MB
+      POSTGRES_DEFAULT_STATISTICS_TARGET: 100
+      POSTGRES_RANDOM_PAGE_COST: 1.1
+      POSTGRES_EFFECTIVE_IO_CONCURRENCY: 200
+      POSTGRES_WORK_MEM: 4MB
+      POSTGRES_MIN_WAL_SIZE: 1GB
+      POSTGRES_MAX_WAL_SIZE: 2GB
+      POSTGRES_MAX_CONNECTIONS: 30
+    # No ports exposed - only accessible via Docker network for maximum security
+    # ports:
+    #   - "127.0.0.1:5432:5432" # Commented out - use docker exec for direct DB access
+    volumes:
+      - expense-manager-postgres-production-volume:/var/lib/postgresql/data
+    networks:
+      - expense-manager-network-production
+    command: |
+      postgres
+      -c shared_buffers=128MB
+      -c effective_cache_size=384MB
+      -c maintenance_work_mem=32MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=4MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=2GB
+      -c max_connections=30
+      -c max_worker_processes=2
+      -c max_parallel_workers_per_gather=1
+      -c max_parallel_workers=2
+      -c log_connections=on
+      -c log_disconnections=on
+      -c log_duration=on
+      -c log_line_prefix='%t [%p] %u@%d %h '
+      -c log_statement=ddl
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    mem_limit: 640M
+    cpus: 0.6
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    stop_grace_period: 30s
+
+  # Express.js API Application - Production
+  api:
+    container_name: expense-manager-api-production
+    build:
+      context: .
+      dockerfile: Dockerfile.production
+      target: runner
+    command: ["sh", "-c", "npx prisma migrate deploy && node src/server.js"]
+    restart: always
+    env_file:
+      - .env.production
+    environment:
+      # Application Settings
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3000}
+      # Database Configuration
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public&connect_timeout=30
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      # CORS Configuration
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://expense-manager.com}
+      # Node.js Memory Optimization (640MB heap optimized for 2GB/1vCPU server)
+      # Total allocation: Postgres (640M) + API (1024M) + System (336M) = 2GB
+      NODE_OPTIONS: "--max-old-space-size=640 --expose-gc"
+    # SECURITY: API should ONLY be accessible via load balancer, not directly exposed
+    # For local testing only, uncomment and bind to localhost:
+    # ports:
+    #   - "127.0.0.1:3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - expense-manager-network-production
+    volumes:
+      - ./logs:/app/logs
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--spider",
+          "-q",
+          "--timeout=5",
+          "http://localhost:3000/api/v1/health",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    mem_limit: 1024M
+    cpus: 0.8
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    stop_grace_period: 30s
+
+# Named Volumes
+volumes:
+  expense-manager-postgres-production-volume:
+    name: expense-manager-postgres-production-volume
+    driver: local
+
+# Networks
+networks:
+  expense-manager-network-production:
+    driver: bridge
+    name: expense-manager-network-production

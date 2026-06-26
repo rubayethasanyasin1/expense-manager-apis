@@ -1,0 +1,35 @@
+meta {
+  name: Get Monthly Trends
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/monthly-trends
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has trends array", function() {
+    expect(res.body.trends).to.be.an('array');
+    expect(res.body.trends).to.have.lengthOf(12);
+  });
+  
+  test("Each month has required fields", function() {
+    res.body.trends.forEach(month => {
+      expect(month).to.have.property('month');
+      expect(month).to.have.property('monthName');
+      expect(month).to.have.property('totalAmount');
+      expect(month).to.have.property('count');
+    });
+  });
+}

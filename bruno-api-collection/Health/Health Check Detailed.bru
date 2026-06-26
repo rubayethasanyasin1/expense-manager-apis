@@ -1,0 +1,45 @@
+meta {
+  name: Health Check Detailed
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/health/detailed
+  body: none
+  auth: none
+}
+
+tests {
+  test("Status code is 200 or 503", function() {
+    expect([200, 503]).to.include(res.status);
+  });
+  
+  test("Response has status", function() {
+    expect(res.body).to.have.property('status');
+    expect(['ok', 'degraded', 'error']).to.include(res.body.status);
+  });
+  
+  test("Response has services object", function() {
+    if (res.status === 200) {
+      expect(res.body).to.have.property('services');
+      expect(res.body.services).to.have.property('database');
+      expect(res.body.services).to.have.property('api');
+    }
+  });
+  
+  test("Response has system information", function() {
+    if (res.status === 200) {
+      expect(res.body).to.have.property('system');
+      expect(res.body.system).to.have.property('platform');
+      expect(res.body.system).to.have.property('nodeVersion');
+      expect(res.body.system).to.have.property('memory');
+    }
+  });
+  
+  test("Database status is valid", function() {
+    if (res.status === 200 && res.body.services) {
+      expect(['connected', 'disconnected']).to.include(res.body.services.database.status);
+    }
+  });
+}

@@ -1,0 +1,33 @@
+meta {
+  name: Get Recent Expenses
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/recent-expenses?limit=5
+  body: none
+  auth: bearer
+}
+
+params:query {
+  limit: 5
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has expenses array", function() {
+    expect(res.body.expenses).to.be.an('array');
+  });
+  
+  test("Array length is less than or equal to limit", function() {
+    expect(res.body.expenses.length).to.be.at.most(5);
+  });
+}

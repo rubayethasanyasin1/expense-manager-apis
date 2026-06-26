@@ -1,0 +1,55 @@
+meta {
+  name: Create Expense
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/expenses
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "title": "Grocery Shopping",
+    "amount": 125.50,
+    "currency": "USD",
+    "categoryId": "{{categoryId}}",
+    "description": "Weekly grocery shopping at Walmart",
+    "date": "2025-12-09"
+  }
+}
+
+script:post-response {
+  if (res.status === 201 && res.body.expense) {
+    bru.setEnvVar("expenseId", res.body.expense.id);
+  }
+}
+
+tests {
+  test("Status code is 201", function() {
+    expect(res.status).to.equal(201);
+  });
+  
+  test("Response has expense object", function() {
+    expect(res.body.expense).to.be.an('object');
+    expect(res.body.expense).to.have.property('id');
+    expect(res.body.expense).to.have.property('title');
+    expect(res.body.expense).to.have.property('amount');
+    expect(res.body.expense).to.have.property('currency');
+    expect(res.body.expense).to.have.property('categoryId');
+    expect(res.body.expense).to.have.property('category');
+  });
+  
+  test("Expense has correct values", function() {
+    expect(res.body.expense.title).to.equal('Grocery Shopping');
+    expect(res.body.expense.amount).to.equal(125.50);
+    expect(res.body.expense.category).to.be.an('object');
+    expect(res.body.expense.category).to.have.property('name');
+  });
+}

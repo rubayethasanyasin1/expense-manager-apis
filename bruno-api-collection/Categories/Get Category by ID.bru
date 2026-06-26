@@ -1,0 +1,38 @@
+meta {
+  name: Get Category by ID
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/categories/{{categoryId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has category object", function() {
+    expect(res.body.category).to.be.an('object');
+  });
+  
+  test("Category has required fields", function() {
+    expect(res.body.category).to.have.property('id');
+    expect(res.body.category).to.have.property('name');
+    expect(res.body.category).to.have.property('userId');
+    expect(res.body.category).to.have.property('createdAt');
+    expect(res.body.category).to.have.property('updatedAt');
+  });
+  
+  test("Category has expense count", function() {
+    expect(res.body.category).to.have.property('_count');
+    expect(res.body.category._count).to.have.property('expenses');
+  });
+}

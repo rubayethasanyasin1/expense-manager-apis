@@ -1,0 +1,30 @@
+meta {
+  name: Health Check
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/health
+  body: none
+  auth: none
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has status", function() {
+    expect(res.body).to.have.property('status');
+    expect(res.body.status).to.equal('ok');
+  });
+  
+  test("Response has message", function() {
+    expect(res.body).to.have.property('message');
+  });
+  
+  test("Response has timestamp", function() {
+    expect(res.body).to.have.property('timestamp');
+  });
+}

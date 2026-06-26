@@ -1,0 +1,33 @@
+meta {
+  name: Get Dashboard Summary
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/summary
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has summary object", function() {
+    expect(res.body.summary).to.be.an('object');
+    expect(res.body.summary).to.have.property('totalAmount');
+    expect(res.body.summary).to.have.property('totalCount');
+    expect(res.body.summary).to.have.property('averageExpense');
+    expect(res.body.summary).to.have.property('categoryBreakdown');
+  });
+  
+  test("Category breakdown is an object", function() {
+    expect(res.body.summary.categoryBreakdown).to.be.an('object');
+  });
+}

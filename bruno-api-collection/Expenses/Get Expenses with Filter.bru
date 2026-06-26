@@ -1,0 +1,39 @@
+meta {
+  name: Get Expenses with Filter
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/expenses?category=Food&startDate=2025-12-01&endDate=2025-12-31
+  body: none
+  auth: bearer
+}
+
+params:query {
+  category: Food
+  startDate: 2025-12-01
+  endDate: 2025-12-31
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has expenses array", function() {
+    expect(res.body.expenses).to.be.an('array');
+  });
+  
+  test("All expenses are in Food category", function() {
+    if (res.body.expenses.length > 0) {
+      res.body.expenses.forEach(expense => {
+        expect(expense.category).to.equal('Food');
+      });
+    }
+  });
+}

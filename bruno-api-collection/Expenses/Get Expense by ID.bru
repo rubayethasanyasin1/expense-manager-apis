@@ -1,0 +1,31 @@
+meta {
+  name: Get Expense by ID
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/v1/expenses/{{expenseId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has expense object", function() {
+    expect(res.body.expense).to.be.an('object');
+    expect(res.body.expense).to.have.property('id');
+    expect(res.body.expense).to.have.property('title');
+    expect(res.body.expense).to.have.property('amount');
+    expect(res.body.expense).to.have.property('currency');
+    expect(res.body.expense).to.have.property('category');
+    expect(res.body.expense).to.have.property('date');
+  });
+}

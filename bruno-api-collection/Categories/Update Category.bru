@@ -1,0 +1,46 @@
+meta {
+  name: Update Category
+  type: http
+  seq: 4
+}
+
+put {
+  url: {{baseUrl}}/api/v1/categories/{{categoryId}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "Grocery Shopping",
+    "color": "#8BC34A",
+    "icon": "shopping-bag"
+  }
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has success message", function() {
+    expect(res.body.message).to.equal('Category updated successfully');
+  });
+  
+  test("Response has updated category", function() {
+    expect(res.body.category).to.be.an('object');
+    expect(res.body.category).to.have.property('id');
+    expect(res.body.category).to.have.property('name');
+    expect(res.body.category).to.have.property('updatedAt');
+  });
+  
+  test("Category has updated values", function() {
+    expect(res.body.category.name).to.equal('Grocery Shopping');
+    expect(res.body.category.color).to.equal('#8BC34A');
+    expect(res.body.category.icon).to.equal('shopping-bag');
+  });
+}

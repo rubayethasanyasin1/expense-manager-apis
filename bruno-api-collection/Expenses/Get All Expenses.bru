@@ -1,0 +1,38 @@
+meta {
+  name: Get All Expenses
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/expenses?page=1&limit=10
+  body: none
+  auth: bearer
+}
+
+params:query {
+  page: 1
+  limit: 10
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has expenses array", function() {
+    expect(res.body.expenses).to.be.an('array');
+  });
+  
+  test("Response has pagination", function() {
+    expect(res.body.pagination).to.be.an('object');
+    expect(res.body.pagination).to.have.property('page');
+    expect(res.body.pagination).to.have.property('limit');
+    expect(res.body.pagination).to.have.property('total');
+    expect(res.body.pagination).to.have.property('pages');
+  });
+}

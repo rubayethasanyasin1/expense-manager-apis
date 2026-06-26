@@ -1,0 +1,38 @@
+meta {
+  name: Delete Category
+  type: http
+  seq: 5
+}
+
+delete {
+  url: {{baseUrl}}/api/v1/categories/{{categoryId}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200 or 409", function() {
+    expect([200, 409]).to.include(res.status);
+  });
+  
+  test("Response has message", function() {
+    expect(res.body.message).to.be.a('string');
+  });
+  
+  test("If successful, message confirms deletion", function() {
+    if (res.status === 200) {
+      expect(res.body.message).to.equal('Category deleted successfully');
+    }
+  });
+  
+  test("If conflict, explains reason", function() {
+    if (res.status === 409) {
+      expect(res.body.error).to.include('Cannot delete category');
+      expect(res.body).to.have.property('expenseCount');
+    }
+  });
+}

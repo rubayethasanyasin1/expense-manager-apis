@@ -1,0 +1,48 @@
+meta {
+  name: Get All Categories
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/categories?page=1&limit=50
+  body: none
+  auth: bearer
+}
+
+params:query {
+  page: 1
+  limit: 50
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has categories array", function() {
+    expect(res.body.categories).to.be.an('array');
+  });
+  
+  test("Response has pagination object", function() {
+    expect(res.body.pagination).to.be.an('object');
+    expect(res.body.pagination).to.have.property('total');
+    expect(res.body.pagination).to.have.property('page');
+    expect(res.body.pagination).to.have.property('limit');
+    expect(res.body.pagination).to.have.property('pages');
+  });
+  
+  test("Categories have required fields", function() {
+    if (res.body.categories.length > 0) {
+      const category = res.body.categories[0];
+      expect(category).to.have.property('id');
+      expect(category).to.have.property('name');
+      expect(category).to.have.property('userId');
+      expect(category).to.have.property('_count');
+    }
+  });
+}

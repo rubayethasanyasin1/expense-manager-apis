@@ -1,0 +1,99 @@
+services:
+  # PostgreSQL Database (Development)
+  postgres:
+    image: postgres:16-alpine
+    container_name: expense-manager-postgres-development
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - expense-manager-postgres-volume-development:/var/lib/postgresql/data
+    networks:
+      - expense-manager-network-development
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # API Application (Development with Hot Reload)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.development
+      target: development
+    image: expense-manager-api:development
+    container_name: expense-manager-api-development
+    env_file:
+      - .env
+    environment:
+      # Application Settings
+      NODE_ENV: development
+      PORT: 3000
+      # Database Configuration
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      # JWT Configuration
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      # CORS Configuration
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:5173}
+      # Development-specific: File watching (required for Docker volumes on macOS/Windows)
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    volumes:
+      # Mount source code for hot reload
+      - ./src:/app/src:cached
+      # Mount Prisma schema
+      - ./prisma:/app/prisma:cached
+      # Persist node_modules in named volume for performance
+      - expense-manager-api-node-modules-development:/app/node_modules
+      # Mount directories for runtime data
+      - ./logs:/app/logs
+    networks:
+      - expense-manager-network-development
+    ports:
+      - "3000:3000"
+      # Debug port for VS Code debugging
+      - "9229:9229"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/api/v1/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+# Named Volumes
+volumes:
+  expense-manager-postgres-volume-development:
+    driver: local
+    name: expense-manager-postgres-volume-development
+  expense-manager-api-node-modules-development:
+    driver: local
+    name: expense-manager-api-node-modules-development
+
+# Networks
+networks:
+  expense-manager-network-development:
+    driver: bridge
+    name: expense-manager-network-development

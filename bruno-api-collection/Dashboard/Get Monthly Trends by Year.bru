@@ -1,0 +1,30 @@
+meta {
+  name: Get Monthly Trends by Year
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/monthly-trends?year=2025
+  body: none
+  auth: bearer
+}
+
+params:query {
+  year: 2025
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has trends array", function() {
+    expect(res.body.trends).to.be.an('array');
+    expect(res.body.trends).to.have.lengthOf(12);
+  });
+}

@@ -1,0 +1,36 @@
+meta {
+  name: Get Category Analytics
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboard/category-analytics
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+tests {
+  test("Status code is 200", function() {
+    expect(res.status).to.equal(200);
+  });
+  
+  test("Response has categoryAnalytics array", function() {
+    expect(res.body.categoryAnalytics).to.be.an('array');
+  });
+  
+  test("Each category has required fields", function() {
+    if (res.body.categoryAnalytics.length > 0) {
+      res.body.categoryAnalytics.forEach(category => {
+        expect(category).to.have.property('category');
+        expect(category).to.have.property('totalAmount');
+        expect(category).to.have.property('count');
+        expect(category).to.have.property('averageAmount');
+      });
+    }
+  });
+}

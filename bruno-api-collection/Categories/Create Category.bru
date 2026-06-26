@@ -1,0 +1,48 @@
+meta {
+  name: Create Category
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/categories
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "name": "Groceries",
+    "color": "#4CAF50",
+    "icon": "shopping-cart"
+  }
+}
+
+script:post-response {
+  if (res.status === 201 && res.body.category) {
+    bru.setEnvVar("categoryId", res.body.category.id);
+  }
+}
+
+tests {
+  test("Status code is 201", function() {
+    expect(res.status).to.equal(201);
+  });
+  
+  test("Response has category object", function() {
+    expect(res.body.category).to.be.an('object');
+    expect(res.body.category).to.have.property('id');
+    expect(res.body.category).to.have.property('name');
+    expect(res.body.category).to.have.property('userId');
+  });
+  
+  test("Category has correct values", function() {
+    expect(res.body.category.name).to.equal('Groceries');
+    expect(res.body.category.color).to.equal('#4CAF50');
+    expect(res.body.category.icon).to.equal('shopping-cart');
+  });
+}

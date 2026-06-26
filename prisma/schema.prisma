@@ -1,0 +1,87 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String     @id @default(uuid())
+  email        String     @unique
+  password     String?
+  name         String
+  googleId     String?    @unique
+  authProvider String     @default("local") // 'local' or 'google'
+  avatar       String?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  expenses     Expense[]
+  categories   Category[]
+  wallets      Wallet[]
+
+  @@map("users")
+}
+
+model Wallet {
+  id                  String    @id @default(uuid())
+  name                String
+  color               String?
+  icon                String?
+  balance             Float     @default(0.0)
+  userId              String
+  user                User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expenses            Expense[] @relation("SourceWallet")
+  incomingTransfers   Expense[] @relation("DestinationWallet")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("wallets")
+}
+
+model Category {
+  id        String    @id @default(uuid())
+  name      String
+  color     String?
+  icon      String?
+  type      String    @default("EXPENSE") // "EXPENSE" or "INCOME"
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expenses  Expense[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@map("categories")
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  title       String
+  amount      Float
+  currency    String   @default("USD")
+  type        String   @default("EXPENSE") // "EXPENSE", "INCOME", or "TRANSFER"
+  categoryId  String?  // Made optional for TRANSFER transactions
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  walletId    String?  // Source wallet
+  wallet      Wallet?  @relation("SourceWallet", fields: [walletId], references: [id], onDelete: SetNull)
+  toWalletId  String?  // Destination wallet
+  toWallet    Wallet?  @relation("DestinationWallet", fields: [toWalletId], references: [id], onDelete: SetNull)
+  description String?
+  date        DateTime @default(now())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([date])
+  @@index([categoryId])
+  @@index([walletId])
+  @@index([toWalletId])
+  @@map("expenses")
+}
