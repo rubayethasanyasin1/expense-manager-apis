@@ -81,10 +81,27 @@ app.use((err, req, res, _next) => {
 });
 
 if (!process.env.VERCEL) {
-  app.listen(PORT, () => {
+  logger.info('Port debug', {
+    portEnv: process.env.PORT,
+    finalPort: PORT
+  });
+
+  const server = app.listen(PORT, '0.0.0.0', () => {
     logger.info('Server started successfully', {
       port: PORT,
       nodeEnv: process.env.NODE_ENV || 'development'
+    });
+  });
+
+  server.on('error', (err) => {
+    logger.error('SERVER LISTEN ERROR', {
+      message: err.message,
+      code: err.code,
+      errno: err.errno,
+      syscall: err.syscall,
+      address: err.address,
+      port: err.port,
+      stack: err.stack
     });
   });
 }
