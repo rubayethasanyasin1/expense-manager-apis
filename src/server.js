@@ -3,13 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import session from 'express-session';
 import passport from './config/passport.js';
-import healthRoutes from './routes/healthRoutes.js';
-import authRoutes from './routes/authRoutes.js';
-import expenseRoutes from './routes/expenseRoutes.js';
-import dashboardRoutes from './routes/dashboardRoutes.js';
-import categoryRoutes from './routes/categoryRoutes.js';
-import migrationRoutes from './routes/migrationRoutes.js';
-import walletRoutes from './routes/walletRoutes.js';
+import routes from './routes/index.js';
 import { requestLogger, errorLogger } from './middleware/logging.js';
 import logger from './config/logger.js';
 
@@ -50,13 +44,7 @@ app.use(passport.session());
 app.use(requestLogger);
 
 // Routes
-app.use('/api/v1/health', healthRoutes);
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1/expenses', expenseRoutes);
-app.use('/api/v1/dashboard', dashboardRoutes);
-app.use('/api/v1/categories', categoryRoutes);
-app.use('/api/v1/migration', migrationRoutes);
-app.use('/api/v1/wallets', walletRoutes);
+app.use('/api/v1', routes);
 
 // 404 handler
 app.use((req, res) => {

@@ -1,9 +1,7 @@
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
 import { validationResult } from 'express-validator';
-import prisma from '../config/database.js';
 import logger from '../config/logger.js';
-import { createDefaultCategories, createDefaultWallets } from '../utils/defaultCategories.js';
+import authService from '../services/authService.js';
+import passport from '../config/passport.js';
 
 const register = async (req, res) => {
   try {
@@ -13,35 +11,7 @@ const register = async (req, res) => {
     }
 
     const { email, password, name } = req.body;
-
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser) {
-      return res.status(400).json({ error: 'Email already registered' });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    const user = await prisma.user.create({
-      data: {
-        email,
-        password: hashedPassword,
-        name
-      },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        createdAt: true
-      }
-    });
-
-    // Create default categories and wallets for the new user
-    await createDefaultCategories(user.id);
-    await createDefaultWallets(user.id);
-
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-      expiresIn: '7d'
-    });
+    const { user, token } = await authService.registerUser(email, password, name);
 
     res.status(201).json({
       message: 'User registered successfully',
@@ -49,6 +19,9 @@ const register = async (req, res) => {
       token
     });
   } catch (error) {
+    if (error.message === 'Email already registered') {
+      return res.status(400).json({ error: error.message });
+    }
     logger.logError(error, null, { context: 'user-registration' });
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -62,39 +35,17 @@ const login = async (req, res) => {
     }
 
     const { email, password } = req.body;
-
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    // Check if user registered with OAuth
-    if (user.authProvider !== 'local' && !user.password) {
-      return res.status(401).json({
-        error: `This account is registered with ${user.authProvider}. Please use ${user.authProvider} to log in.`
-      });
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-      expiresIn: '7d'
-    });
+    const { user, token } = await authService.loginUser(email, password);
 
     res.json({
       message: 'Login successful',
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        avatar: user.avatar
-      },
+      user,
       token
     });
   } catch (error) {
+    if (error.message === 'Invalid credentials' || error.message.includes('registered with')) {
+      return res.status(401).json({ error: error.message });
+    }
     logger.logError(error, null, { context: 'user-login' });
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -102,24 +53,12 @@ const login = async (req, res) => {
 
 const getProfile = async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.userId },
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        avatar: true,
-        authProvider: true,
-        createdAt: true
-      }
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
+    const user = await authService.getUserProfile(req.userId);
     res.json(user);
   } catch (error) {
+    if (error.message === 'User not found') {
+      return res.status(404).json({ error: error.message });
+    }
     logger.logError(error, null, { context: 'get-user-profile' });
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -133,69 +72,57 @@ const updateProfile = async (req, res) => {
     }
 
     const { name, email, password } = req.body;
-    const updateData = {};
-
-    // Check if email is being changed and if it's already taken
-    if (email) {
-      const existingUser = await prisma.user.findUnique({ where: { email } });
-      if (existingUser && existingUser.id !== req.userId) {
-        return res.status(400).json({ error: 'Email already in use' });
-      }
-      updateData.email = email;
-    }
-
-    if (name) {
-      updateData.name = name;
-    }
-
-    if (password) {
-      updateData.password = await bcrypt.hash(password, 10);
-    }
-
-    const user = await prisma.user.update({
-      where: { id: req.userId },
-      data: updateData,
-      select: {
-        id: true,
-        email: true,
-        name: true,
-        createdAt: true
-      }
-    });
+    const user = await authService.updateUserProfile(req.userId, { name, email, password });
 
     res.json({
       message: 'Profile updated successfully',
       user
     });
   } catch (error) {
+    if (error.message === 'Email already in use') {
+      return res.status(400).json({ error: error.message });
+    }
     logger.logError(error, null, { context: 'update-user-profile' });
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-// Google OAuth callback handler
+// Google OAuth Handlers
+const googleAuth = (req, res, next) => {
+  const state = req.query.redirectUrl ? Buffer.from(req.query.redirectUrl).toString('base64') : undefined;
+  const dynamicCallbackUrl = `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
+
+  passport.authenticate('google', {
+    scope: ['profile', 'email'],
+    state: state,
+    callbackURL: dynamicCallbackUrl
+  })(req, res, next);
+};
+
+const googleAuthCallbackMiddleware = (req, res, next) => {
+  const dynamicCallbackUrl = `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
+  
+  passport.authenticate('google', {
+    failureRedirect: '/api/v1/auth/google/failure',
+    session: false,
+    callbackURL: dynamicCallbackUrl
+  })(req, res, next);
+};
+
 const googleCallback = async (req, res) => {
   try {
-    // User is already authenticated by passport
     const user = req.user;
-
-    // Generate JWT token
-    const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
-      expiresIn: process.env.JWT_EXPIRES_IN || '7d'
-    });
+    const token = authService.generateToken(user.id);
 
     let frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
     let redirectPath = '/auth/callback';
 
-    // If a custom redirectUrl was passed via state, decode and use it
     if (req.query.state) {
       try {
         const decodedState = Buffer.from(req.query.state, 'base64').toString('ascii');
         console.log('Google Auth - Decoded state (redirect URL):', decodedState);
         
-        // Ensure it's a valid looking URL to prevent open redirect vulnerabilities
         if (decodedState && (decodedState.startsWith('exp://') || decodedState.startsWith('http') || decodedState.includes('://'))) {
-          // Append the token to the provided redirect URL
           const separator = decodedState.includes('?') ? '&' : '?';
           const redirectUrl = `${decodedState}${separator}token=${token}`;
           console.log('Google Auth - Redirecting to Expo App:', redirectUrl);
@@ -210,9 +137,7 @@ const googleCallback = async (req, res) => {
       console.log('Google Auth - No state parameter received, falling back to web URL');
     }
 
-    // Default web redirect
     const redirectUrl = `${frontendUrl}${redirectPath}?token=${token}`;
-
     res.redirect(redirectUrl);
   } catch (error) {
     logger.logError(error, null, { context: 'google-oauth-callback' });
@@ -221,10 +146,18 @@ const googleCallback = async (req, res) => {
   }
 };
 
-// Google OAuth failure handler
 const googleFailure = (req, res) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
   res.redirect(`${frontendUrl}/auth/error?message=Google authentication failed`);
 };
 
-export { register, login, getProfile, updateProfile, googleCallback, googleFailure };
+export { 
+  register, 
+  login, 
+  getProfile, 
+  updateProfile, 
+  googleAuth, 
+  googleAuthCallbackMiddleware, 
+  googleCallback, 
+  googleFailure 
+};
