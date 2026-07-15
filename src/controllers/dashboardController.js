@@ -1,44 +1,26 @@
-import logger from '../config/logger.js';
 import dashboardService from '../services/dashboardService.js';
+import catchAsync from '../utils/catchAsync.js';
 
-const getDashboardSummary = async (req, res) => {
-  try {
-    const summary = await dashboardService.getDashboardSummary(req.userId, req.query);
-    res.json(summary);
-  } catch (error) {
-    logger.logError(error, null, { context: 'dashboard-summary' });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+export const getDashboardSummary = catchAsync(async (req, res) => {
+  const { month, year } = req.query;
+  const result = await dashboardService.getDashboardSummary(req.userId, month, year);
+  res.json(result);
+});
 
-const getCategoryAnalytics = async (req, res) => {
-  try {
-    const analytics = await dashboardService.getCategoryAnalytics(req.userId, req.query);
-    res.json(analytics);
-  } catch (error) {
-    logger.logError(error, null, { context: 'category-analytics' });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+export const getCategoryAnalytics = catchAsync(async (req, res) => {
+  const { month, year } = req.query;
+  const result = await dashboardService.getCategoryAnalytics(req.userId, month, year);
+  res.json(result);
+});
 
-const getMonthlyTrends = async (req, res) => {
-  try {
-    const trends = await dashboardService.getMonthlyTrends(req.userId, req.query);
-    res.json(trends);
-  } catch (error) {
-    logger.logError(error, null, { context: 'monthly-trends' });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+export const getMonthlyTrends = catchAsync(async (req, res) => {
+  const { months } = req.query;
+  const result = await dashboardService.getMonthlyTrends(req.userId, months ? parseInt(months) : 6);
+  res.json(result);
+});
 
-const getRecentExpenses = async (req, res) => {
-  try {
-    const expenses = await dashboardService.getRecentExpenses(req.userId, req.query);
-    res.json(expenses);
-  } catch (error) {
-    logger.logError(error, null, { context: 'recent-expenses' });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export { getDashboardSummary, getCategoryAnalytics, getMonthlyTrends, getRecentExpenses };
+export const getRecentExpenses = catchAsync(async (req, res) => {
+  const { limit } = req.query;
+  const result = await dashboardService.getRecentExpenses(req.userId, limit ? parseInt(limit) : 10);
+  res.json(result);
+});

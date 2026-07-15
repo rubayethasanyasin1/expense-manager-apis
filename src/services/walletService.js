@@ -1,4 +1,5 @@
 import prisma from '../config/database.js';
+import AppError from '../utils/AppError.js';
 
 class WalletService {
   async getWallets(userId) {
@@ -18,9 +19,7 @@ class WalletService {
     });
 
     if (existingWallet) {
-      const error = new Error('A wallet with this name already exists');
-      error.status = 400;
-      throw error;
+      throw new AppError('A wallet with this name already exists', 400);
     }
 
     const wallet = await prisma.wallet.create({
@@ -42,9 +41,7 @@ class WalletService {
     });
 
     if (!existingWallet) {
-      const error = new Error('Wallet not found');
-      error.status = 404;
-      throw error;
+      throw new AppError('Wallet not found', 404);
     }
 
     if (name && name.toLowerCase() !== existingWallet.name.toLowerCase()) {
@@ -55,9 +52,7 @@ class WalletService {
         }
       });
       if (duplicateWallet) {
-        const error = new Error('A wallet with this name already exists');
-        error.status = 400;
-        throw error;
+        throw new AppError('A wallet with this name already exists', 400);
       }
     }
 
@@ -88,15 +83,11 @@ class WalletService {
     });
 
     if (!wallet) {
-      const error = new Error('Wallet not found');
-      error.status = 404;
-      throw error;
+      throw new AppError('Wallet not found', 404);
     }
 
     if (wallet._count.expenses > 0 || wallet._count.incomingTransfers > 0) {
-      const error = new Error('Cannot delete wallet because it has associated transactions');
-      error.status = 400;
-      throw error;
+      throw new AppError('Cannot delete wallet because it has associated transactions', 400);
     }
 
     await prisma.wallet.delete({

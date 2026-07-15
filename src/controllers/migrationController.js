@@ -1,56 +1,34 @@
-import logger from '../config/logger.js';
 import migrationService from '../services/migrationService.js';
+import catchAsync from '../utils/catchAsync.js';
 
-const migrateDefaultCategories = async (req, res) => {
-  try {
-    const results = await migrationService.migrateDefaultCategories();
-    res.json({
-      success: true,
-      message: 'Migration completed',
-      results
-    });
-  } catch (error) {
-    logger.logError(error, null, { context: 'migrate-default-categories' });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+export const migrateDefaultCategories = catchAsync(async (req, res) => {
+  const results = await migrationService.migrateDefaultCategories();
+  res.json({
+    success: true,
+    message: 'Migration completed',
+    results
+  });
+});
 
-const checkMigrationStatus = async (req, res) => {
-  try {
-    const status = await migrationService.checkMigrationStatus();
-    res.json(status);
-  } catch (error) {
-    logger.logError(error, null, { context: 'check-migration-status' });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+export const checkMigrationStatus = catchAsync(async (req, res) => {
+  const status = await migrationService.checkMigrationStatus();
+  res.json(status);
+});
 
-const fixOrphanExpenses = async (req, res) => {
-  try {
-    const results = await migrationService.fixOrphanExpenses();
-    res.json({
-      success: true,
-      message: 'Orphan expenses fixed',
-      ...results
-    });
-  } catch (error) {
-    logger.logError(error, null, { context: 'fix-orphan-expenses' });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
+export const fixOrphanExpenses = catchAsync(async (req, res) => {
+  const results = await migrationService.fixOrphanExpenses();
+  res.json({
+    success: true,
+    message: 'Orphan expenses fixed',
+    ...results
+  });
+});
 
-const migrateWalletsAndTypes = async (req, res) => {
-  try {
-    const results = await migrationService.migrateWalletsAndTypes();
-    res.json({
-      success: true,
-      message: 'Wallets and types migration completed',
-      results
-    });
-  } catch (error) {
-    logger.logError(error, null, { context: 'migrate-wallets-and-types' });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-export { migrateDefaultCategories, checkMigrationStatus, fixOrphanExpenses, migrateWalletsAndTypes };
+export const migrateWalletsAndTypes = catchAsync(async (req, res) => {
+  const results = await migrationService.migrateWalletsAndTypes();
+  res.json({
+    success: true,
+    message: 'Wallets and types migration completed',
+    results
+  });
+});

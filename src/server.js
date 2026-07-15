@@ -62,8 +62,19 @@ app.use(errorLogger);
 
 // Error handler
 app.use((err, req, res, _next) => {
-  res.status(err.status || 500).json({
-    error: err.message || 'Something went wrong!',
+  let statusCode = err.status || 500;
+  let message = err.message || 'Something went wrong!';
+
+  // Sanitize Prisma errors so we don't leak database internals to the client
+  if (err.name && err.name.startsWith('PrismaClient')) {
+    statusCode = 500;
+    message = 'Internal server error (Database)';
+    // Log the actual Prisma error for debugging purposes
+    logger.error('Prisma Error intercepted:', { error: err.message, name: err.name });
+  }
+
+  res.status(statusCode).json({
+    error: message,
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
 });

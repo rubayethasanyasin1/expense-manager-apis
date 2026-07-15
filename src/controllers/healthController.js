@@ -1,29 +1,14 @@
 import healthService from '../services/healthService.js';
+import catchAsync from '../utils/catchAsync.js';
+import AppError from '../utils/AppError.js';
 
-export const getHealth = async (req, res) => {
-  try {
-    const healthCheck = healthService.getHealth();
-    res.json(healthCheck);
-  } catch (error) {
-    res.status(503).json({
-      status: 'error',
-      message: 'Service unavailable',
-      timestamp: new Date().toISOString()
-    });
-  }
-};
+export const getHealth = catchAsync(async (req, res) => {
+  const healthCheck = healthService.getHealth();
+  res.json(healthCheck);
+});
 
-export const getHealthDetailed = async (req, res) => {
-  try {
-    const { healthCheck, isHealthy } = await healthService.getHealthDetailed();
-    const statusCode = isHealthy ? 200 : 503;
-    res.status(statusCode).json(healthCheck);
-  } catch (error) {
-    res.status(503).json({
-      status: 'error',
-      message: 'Service unavailable',
-      timestamp: new Date().toISOString(),
-      error: error.message
-    });
-  }
-};
+export const getHealthDetailed = catchAsync(async (req, res) => {
+  const { healthCheck, isHealthy } = await healthService.getHealthDetailed();
+  const statusCode = isHealthy ? 200 : 503;
+  res.status(statusCode).json(healthCheck);
+});

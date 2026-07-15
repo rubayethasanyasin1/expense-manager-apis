@@ -1,170 +1,50 @@
 import prisma from '../config/database.js';
-import { getOrCreateNoCategory } from '../utils/defaultCategories.js';
+import AppError from '../utils/AppError.js';
 
 class ExpenseService {
-  async createExpense(userId, data) {
-    const { title, amount, categoryId, description, date, currency, type = 'EXPENSE', walletId, toWalletId } = data;
+  async getExpenses(userId, query) {
+    const { 
+      page = 1, 
+      limit = 10, 
+      month, 
+      year, 
+      categoryId, 
+      type,
+      search 
+    } = query;
 
-    // 1. Resolve source walletId
-    let finalWalletId = walletId;
-    if (!finalWalletId) {
-      const cashWallet = await prisma.wallet.findFirst({
-        where: { userId, name: 'Cash' }
-      });
-      if (cashWallet) {
-        finalWalletId = cashWallet.id;
-      } else {
-        const firstWallet = await prisma.wallet.findFirst({
-          where: { userId }
-        });
-        if (firstWallet) {
-          finalWalletId = firstWallet.id;
-        } else {
-          const error = new Error('User has no wallets. Please create a wallet first.');
-          error.status = 400;
-          throw error;
-        }
-      }
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const take = parseInt(limit);
+
+    const where = { userId };
+
+    if (month && year) {
+      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59, 999);
+      where.date = { gte: startDate, lte: endDate };
     }
 
-    // Verify source wallet belongs to user
-    const wallet = await prisma.wallet.findFirst({
-      where: { id: finalWalletId, userId }
-    });
-    if (!wallet) {
-      const error = new Error('Source wallet not found');
-      error.status = 404;
-      throw error;
+    if (categoryId) where.categoryId = categoryId;
+    if (type) where.type = type;
+
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } },
+        { category: { name: { contains: search, mode: 'insensitive' } } }
+      ];
     }
-
-    // 2. Perform type-specific validation
-    let finalCategoryId = null;
-
-    if (type === 'TRANSFER') {
-      if (!toWalletId) {
-        const error = new Error('Destination wallet (toWalletId) is required for transfers');
-        error.status = 400;
-        throw error;
-      }
-      if (toWalletId === finalWalletId) {
-        const error = new Error('Source and destination wallets must be different');
-        error.status = 400;
-        throw error;
-      }
-      const toWallet = await prisma.wallet.findFirst({
-        where: { id: toWalletId, userId }
-      });
-      if (!toWallet) {
-        const error = new Error('Destination wallet not found');
-        error.status = 404;
-        throw error;
-      }
-    } else {
-      // EXPENSE or INCOME
-      finalCategoryId = categoryId;
-      if (!finalCategoryId) {
-        finalCategoryId = await getOrCreateNoCategory(userId, type);
-      } else {
-        const category = await prisma.category.findFirst({
-          where: { id: finalCategoryId, userId, type }
-        });
-        if (!category) {
-          const error = new Error(`Category not found or does not match transaction type ${type}`);
-          error.status = 404;
-          throw error;
-        }
-      }
-    }
-
-    // 3. Atomically create transaction and adjust wallet balances
-    const expense = await prisma.$transaction(async (tx) => {
-      const createdExpense = await tx.expense.create({
-        data: {
-          title,
-          amount: parseFloat(amount),
-          currency: currency || 'USD',
-          type,
-          categoryId: type === 'TRANSFER' ? null : finalCategoryId,
-          walletId: finalWalletId,
-          toWalletId: type === 'TRANSFER' ? toWalletId : null,
-          description,
-          date: date ? new Date(date) : new Date(),
-          userId
-        },
-        include: {
-          category: true,
-          wallet: true,
-          toWallet: true
-        }
-      });
-
-      // Adjust wallet balances
-      if (type === 'EXPENSE') {
-        await tx.wallet.update({
-          where: { id: finalWalletId },
-          data: { balance: { decrement: parseFloat(amount) } }
-        });
-      } else if (type === 'INCOME') {
-        await tx.wallet.update({
-          where: { id: finalWalletId },
-          data: { balance: { increment: parseFloat(amount) } }
-        });
-      } else if (type === 'TRANSFER') {
-        await tx.wallet.update({
-          where: { id: finalWalletId },
-          data: { balance: { decrement: parseFloat(amount) } }
-        });
-        await tx.wallet.update({
-          where: { id: toWalletId },
-          data: { balance: { increment: parseFloat(amount) } }
-        });
-      }
-
-      return createdExpense;
-    });
-
-    return expense;
-  }
-
-  async getExpenses(userId, { page = 1, limit = 10, categoryId, startDate, endDate, search, type, walletId }) {
-    const skip = (page - 1) * limit;
-
-    const where = {
-      userId,
-      ...(categoryId && { categoryId }),
-      ...(type && { type }),
-      ...(walletId && {
-        OR: [
-          { walletId },
-          { toWalletId: walletId }
-        ]
-      }),
-      ...(startDate &&
-        endDate && {
-        date: {
-          gte: new Date(startDate),
-          lte: new Date(endDate)
-        }
-      }),
-      ...(search && {
-        OR: [
-          { title: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } }
-        ]
-      })
-    };
 
     const [expenses, total] = await Promise.all([
       prisma.expense.findMany({
         where,
-        orderBy: { date: 'desc' },
-        skip: parseInt(skip),
-        take: parseInt(limit),
         include: {
-          category: true,
-          wallet: true,
-          toWallet: true
-        }
+          category: { select: { id: true, name: true, color: true, icon: true } },
+          wallet: { select: { id: true, name: true, icon: true, color: true } }
+        },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        skip,
+        take
       }),
       prisma.expense.count({ where })
     ]);
@@ -172,238 +52,190 @@ class ExpenseService {
     return {
       expenses,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
         total,
-        pages: Math.ceil(total / limit)
+        page: parseInt(page),
+        pages: Math.ceil(total / take)
       }
     };
   }
 
   async getExpenseById(userId, id) {
     const expense = await prisma.expense.findFirst({
-      where: {
-        id,
-        userId
-      },
+      where: { id, userId },
       include: {
-        category: true,
-        wallet: true,
-        toWallet: true
+        category: { select: { id: true, name: true, color: true, icon: true } },
+        wallet: { select: { id: true, name: true, icon: true, color: true } }
       }
     });
 
     if (!expense) {
-      const error = new Error('Transaction not found');
-      error.status = 404;
-      throw error;
+      throw new AppError('Expense not found', 404);
     }
 
     return expense;
   }
 
+  async createExpense(userId, data) {
+    const { title, amount, categoryId, date, description, type, walletId } = data;
+
+    const category = await prisma.category.findFirst({
+      where: { id: categoryId, userId }
+    });
+
+    if (!category) {
+      throw new AppError('Category not found or does not belong to you', 404);
+    }
+
+    const wallet = await prisma.wallet.findFirst({
+      where: { id: walletId, userId }
+    });
+
+    if (!wallet) {
+      throw new AppError('Wallet not found or does not belong to you', 404);
+    }
+
+    const expenseType = type || category.type;
+
+    return await prisma.$transaction(async (tx) => {
+      const expense = await tx.expense.create({
+        data: {
+          title,
+          amount: parseFloat(amount),
+          date: new Date(date),
+          description,
+          type: expenseType,
+          categoryId,
+          walletId,
+          userId
+        },
+        include: {
+          category: { select: { id: true, name: true, color: true, icon: true } },
+          wallet: { select: { id: true, name: true, icon: true, color: true } }
+        }
+      });
+
+      const balanceChange = expenseType === 'INCOME' ? parseFloat(amount) : -parseFloat(amount);
+
+      await tx.wallet.update({
+        where: { id: walletId },
+        data: { balance: { increment: balanceChange } }
+      });
+
+      return expense;
+    });
+  }
+
   async updateExpense(userId, id, data) {
-    const { title, amount, categoryId, description, date, currency, type, walletId, toWalletId } = data;
+    const { title, amount, categoryId, date, description, type, walletId } = data;
 
     const existingExpense = await prisma.expense.findFirst({
-      where: {
-        id,
-        userId
-      }
+      where: { id, userId }
     });
 
     if (!existingExpense) {
-      const error = new Error('Transaction not found');
-      error.status = 404;
-      throw error;
+      throw new AppError('Expense not found', 404);
     }
 
-    const newType = type || existingExpense.type;
-    const newAmount = amount !== undefined ? parseFloat(amount) : existingExpense.amount;
-    let newWalletId = walletId || existingExpense.walletId;
-    let newToWalletId = toWalletId !== undefined ? toWalletId : existingExpense.toWalletId;
-
-    // Validate new wallet(s)
-    if (newWalletId) {
-      const walletExists = await prisma.wallet.findFirst({
-        where: { id: newWalletId, userId }
-      });
-      if (!walletExists) {
-        const error = new Error('Source wallet not found');
-        error.status = 404;
-        throw error;
-      }
-    }
-
-    if (newType === 'TRANSFER') {
-      if (!newToWalletId) {
-        const error = new Error('Destination wallet (toWalletId) is required for transfers');
-        error.status = 400;
-        throw error;
-      }
-      if (newToWalletId === newWalletId) {
-        const error = new Error('Source and destination wallets must be different');
-        error.status = 400;
-        throw error;
-      }
-      const toWalletExists = await prisma.wallet.findFirst({
-        where: { id: newToWalletId, userId }
-      });
-      if (!toWalletExists) {
-        const error = new Error('Destination wallet not found');
-        error.status = 404;
-        throw error;
-      }
-    }
-
-    // Validate category if updating and not transfer
-    let finalCategoryId = categoryId || existingExpense.categoryId;
-    if (newType !== 'TRANSFER' && finalCategoryId) {
+    let expenseType = type || existingExpense.type;
+    
+    if (categoryId && categoryId !== existingExpense.categoryId) {
       const category = await prisma.category.findFirst({
-        where: { id: finalCategoryId, userId, type: newType }
+        where: { id: categoryId, userId }
       });
+      
       if (!category) {
-        const error = new Error(`Category not found or does not match type ${newType}`);
-        error.status = 404;
-        throw error;
+        throw new AppError('Category not found or does not belong to you', 404);
       }
-    } else if (newType !== 'TRANSFER' && !finalCategoryId) {
-      finalCategoryId = await getOrCreateNoCategory(userId, newType);
+      if (!type) expenseType = category.type;
     }
 
-    // Atomically revert old balances and apply new ones
-    const expense = await prisma.$transaction(async (tx) => {
-      // 1. Revert old transaction balances
-      if (existingExpense.type === 'EXPENSE') {
-        if (existingExpense.walletId) {
+    if (walletId && walletId !== existingExpense.walletId) {
+      const wallet = await prisma.wallet.findFirst({
+        where: { id: walletId, userId }
+      });
+      
+      if (!wallet) {
+        throw new AppError('New wallet not found or does not belong to you', 404);
+      }
+    }
+
+    const currentWalletId = existingExpense.walletId;
+    const newWalletId = walletId || currentWalletId;
+
+    return await prisma.$transaction(async (tx) => {
+      const oldAmount = parseFloat(existingExpense.amount);
+      const newAmount = amount !== undefined ? parseFloat(amount) : oldAmount;
+      const oldType = existingExpense.type;
+      const newType = expenseType;
+
+      if (currentWalletId === newWalletId) {
+        let balanceChange = 0;
+        
+        if (oldType === 'INCOME') balanceChange -= oldAmount;
+        else balanceChange += oldAmount;
+
+        if (newType === 'INCOME') balanceChange += newAmount;
+        else balanceChange -= newAmount;
+
+        if (balanceChange !== 0) {
           await tx.wallet.update({
-            where: { id: existingExpense.walletId },
-            data: { balance: { increment: existingExpense.amount } }
+            where: { id: currentWalletId },
+            data: { balance: { increment: balanceChange } }
           });
         }
-      } else if (existingExpense.type === 'INCOME') {
-        if (existingExpense.walletId) {
-          await tx.wallet.update({
-            where: { id: existingExpense.walletId },
-            data: { balance: { decrement: existingExpense.amount } }
-          });
-        }
-      } else if (existingExpense.type === 'TRANSFER') {
-        if (existingExpense.walletId) {
-          await tx.wallet.update({
-            where: { id: existingExpense.walletId },
-            data: { balance: { increment: existingExpense.amount } }
-          });
-        }
-        if (existingExpense.toWalletId) {
-          await tx.wallet.update({
-            where: { id: existingExpense.toWalletId },
-            data: { balance: { decrement: existingExpense.amount } }
-          });
-        }
+      } else {
+        const oldBalanceReversal = oldType === 'INCOME' ? -oldAmount : oldAmount;
+        await tx.wallet.update({
+          where: { id: currentWalletId },
+          data: { balance: { increment: oldBalanceReversal } }
+        });
+
+        const newBalanceApplication = newType === 'INCOME' ? newAmount : -newAmount;
+        await tx.wallet.update({
+          where: { id: newWalletId },
+          data: { balance: { increment: newBalanceApplication } }
+        });
       }
 
-      // 2. Update the transaction
       const updatedExpense = await tx.expense.update({
         where: { id },
         data: {
           ...(title && { title }),
-          amount: newAmount,
-          currency: currency || existingExpense.currency,
-          type: newType,
-          categoryId: newType === 'TRANSFER' ? null : finalCategoryId,
-          walletId: newWalletId,
-          toWalletId: newType === 'TRANSFER' ? newToWalletId : null,
+          ...(amount !== undefined && { amount: parseFloat(amount) }),
+          ...(categoryId && { categoryId }),
+          ...(date && { date: new Date(date) }),
           ...(description !== undefined && { description }),
-          ...(date && { date: new Date(date) })
+          ...(type && { type }),
+          ...(walletId && { walletId })
         },
         include: {
-          category: true,
-          wallet: true,
-          toWallet: true
+          category: { select: { id: true, name: true, color: true, icon: true } },
+          wallet: { select: { id: true, name: true, icon: true, color: true } }
         }
       });
 
-      // 3. Apply new transaction balances
-      if (newType === 'EXPENSE') {
-        if (newWalletId) {
-          await tx.wallet.update({
-            where: { id: newWalletId },
-            data: { balance: { decrement: newAmount } }
-          });
-        }
-      } else if (newType === 'INCOME') {
-        if (newWalletId) {
-          await tx.wallet.update({
-            where: { id: newWalletId },
-            data: { balance: { increment: newAmount } }
-          });
-        }
-      } else if (newType === 'TRANSFER') {
-        if (newWalletId) {
-          await tx.wallet.update({
-            where: { id: newWalletId },
-            data: { balance: { decrement: newAmount } }
-          });
-        }
-        if (newToWalletId) {
-          await tx.wallet.update({
-            where: { id: newToWalletId },
-            data: { balance: { increment: newAmount } }
-          });
-        }
-      }
-
       return updatedExpense;
     });
-
-    return expense;
   }
 
   async deleteExpense(userId, id) {
     const existingExpense = await prisma.expense.findFirst({
-      where: {
-        id,
-        userId
-      }
+      where: { id, userId }
     });
 
     if (!existingExpense) {
-      const error = new Error('Transaction not found');
-      error.status = 404;
-      throw error;
+      throw new AppError('Expense not found', 404);
     }
 
-    // Atomically revert wallet balance and delete expense
     await prisma.$transaction(async (tx) => {
-      if (existingExpense.type === 'EXPENSE') {
-        if (existingExpense.walletId) {
-          await tx.wallet.update({
-            where: { id: existingExpense.walletId },
-            data: { balance: { increment: existingExpense.amount } }
-          });
-        }
-      } else if (existingExpense.type === 'INCOME') {
-        if (existingExpense.walletId) {
-          await tx.wallet.update({
-            where: { id: existingExpense.walletId },
-            data: { balance: { decrement: existingExpense.amount } }
-          });
-        }
-      } else if (existingExpense.type === 'TRANSFER') {
-        if (existingExpense.walletId) {
-          await tx.wallet.update({
-            where: { id: existingExpense.walletId },
-            data: { balance: { increment: existingExpense.amount } }
-          });
-        }
-        if (existingExpense.toWalletId) {
-          await tx.wallet.update({
-            where: { id: existingExpense.toWalletId },
-            data: { balance: { decrement: existingExpense.amount } }
-          });
-        }
-      }
+      const balanceChange = existingExpense.type === 'INCOME' 
+        ? -parseFloat(existingExpense.amount) 
+        : parseFloat(existingExpense.amount);
+
+      await tx.wallet.update({
+        where: { id: existingExpense.walletId },
+        data: { balance: { increment: balanceChange } }
+      });
 
       await tx.expense.delete({
         where: { id }

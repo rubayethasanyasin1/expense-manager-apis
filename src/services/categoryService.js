@@ -1,21 +1,65 @@
 import prisma from '../config/database.js';
+import AppError from '../utils/AppError.js';
 
 class CategoryService {
-  async createCategory(userId, { name, color, icon }) {
-    // Check if category with same name already exists for this user
-    const existingCategory = await prisma.category.findUnique({
-      where: {
-        userId_name: {
-          userId,
-          name
+  async getCategories(userId) {
+    const categories = await prisma.category.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' }
+    });
+    return { categories };
+  }
+
+  async getCategoryById(userId, id) {
+    const category = await prisma.category.findFirst({
+      where: { id, userId },
+      include: {
+        _count: {
+          select: { expenses: true }
         }
       }
     });
 
+    if (!category) {
+      throw new AppError('Category not found', 404);
+    }
+
+    return category;
+  }
+
+  async getCategoryStats(userId) {
+    const categories = await prisma.category.findMany({
+      where: { userId },
+      include: {
+        _count: {
+          select: { expenses: true }
+        }
+      }
+    });
+
+    const categoryStats = categories.map(cat => ({
+      id: cat.id,
+      name: cat.name,
+      color: cat.color,
+      icon: cat.icon,
+      type: cat.type,
+      expenseCount: cat._count.expenses
+    }));
+
+    return { categories: categoryStats };
+  }
+
+  async createCategory(userId, { name, color, icon, type }) {
+    const existingCategory = await prisma.category.findFirst({
+      where: {
+        userId,
+        name: { equals: name, mode: 'insensitive' },
+        type
+      }
+    });
+
     if (existingCategory) {
-      const error = new Error('Category with this name already exists');
-      error.status = 409;
-      throw error;
+      throw new AppError(`A category with this name already exists for ${type}`, 400);
     }
 
     const category = await prisma.category.create({
@@ -23,6 +67,7 @@ class CategoryService {
         name,
         color,
         icon,
+        type: type || 'EXPENSE',
         userId
       }
     });
@@ -30,129 +75,44 @@ class CategoryService {
     return category;
   }
 
-  async getCategories(userId, { page = 1, limit = 50, search = '', sortBy = 'updatedAt', sortOrder = 'desc' }) {
-    const skip = (page - 1) * limit;
-
-    // Build where clause
-    const where = {
-      userId,
-      ...(search && {
-        name: {
-          contains: search,
-          mode: 'insensitive'
-        }
-      })
-    };
-
-    // Build orderBy clause
-    const validSortFields = ['name', 'createdAt', 'updatedAt'];
-    const sortField = validSortFields.includes(sortBy) ? sortBy : 'updatedAt';
-    const order = sortOrder === 'asc' ? 'asc' : 'desc';
-
-    const [categories, total] = await Promise.all([
-      prisma.category.findMany({
-        where,
-        skip: parseInt(skip),
-        take: parseInt(limit),
-        orderBy: {
-          [sortField]: order
-        },
-        include: {
-          _count: {
-            select: { expenses: true }
-          }
-        }
-      }),
-      prisma.category.count({
-        where
-      })
-    ]);
-
-    return {
-      categories,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        pages: Math.ceil(total / limit)
-      }
-    };
-  }
-
-  async getCategoryById(userId, id) {
-    const category = await prisma.category.findFirst({
-      where: {
-        id,
-        userId
-      },
-      include: {
-        _count: {
-          select: { expenses: true }
-        }
-      }
-    });
-
-    if (!category) {
-      const error = new Error('Category not found');
-      error.status = 404;
-      throw error;
-    }
-
-    return category;
-  }
-
-  async updateCategory(userId, id, { name, color, icon }) {
-    // Check if category exists and belongs to user
+  async updateCategory(userId, id, { name, color, icon, type }) {
     const existingCategory = await prisma.category.findFirst({
-      where: {
-        id,
-        userId
-      }
+      where: { id, userId }
     });
 
     if (!existingCategory) {
-      const error = new Error('Category not found');
-      error.status = 404;
-      throw error;
+      throw new AppError('Category not found', 404);
     }
 
-    // Check if new name conflicts with another category
-    if (name && name !== existingCategory.name) {
-      const nameConflict = await prisma.category.findUnique({
+    if (name && name.toLowerCase() !== existingCategory.name.toLowerCase()) {
+      const duplicateCategory = await prisma.category.findFirst({
         where: {
-          userId_name: {
-            userId,
-            name
-          }
+          userId,
+          name: { equals: name, mode: 'insensitive' },
+          type: type || existingCategory.type
         }
       });
-
-      if (nameConflict) {
-        const error = new Error('Category with this name already exists');
-        error.status = 409;
-        throw error;
+      if (duplicateCategory) {
+        throw new AppError('A category with this name already exists', 400);
       }
     }
 
-    const category = await prisma.category.update({
+    const updatedCategory = await prisma.category.update({
       where: { id },
       data: {
         ...(name && { name }),
         ...(color !== undefined && { color }),
-        ...(icon !== undefined && { icon })
+        ...(icon !== undefined && { icon }),
+        ...(type && { type })
       }
     });
 
-    return category;
+    return updatedCategory;
   }
 
   async deleteCategory(userId, id) {
-    // Check if category exists and belongs to user
     const category = await prisma.category.findFirst({
-      where: {
-        id,
-        userId
-      },
+      where: { id, userId },
       include: {
         _count: {
           select: { expenses: true }
@@ -161,17 +121,11 @@ class CategoryService {
     });
 
     if (!category) {
-      const error = new Error('Category not found');
-      error.status = 404;
-      throw error;
+      throw new AppError('Category not found', 404);
     }
 
-    // Check if category has associated expenses
     if (category._count.expenses > 0) {
-      const error = new Error('Cannot delete category with associated expenses');
-      error.status = 409;
-      error.expenseCount = category._count.expenses;
-      throw error;
+      throw new AppError('Cannot delete category because it has associated expenses', 400);
     }
 
     await prisma.category.delete({

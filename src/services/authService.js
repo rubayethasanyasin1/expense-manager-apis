@@ -2,12 +2,13 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import prisma from '../config/database.js';
 import { createDefaultCategories, createDefaultWallets } from '../utils/defaultCategories.js';
+import AppError from '../utils/AppError.js';
 
 class AuthService {
   async registerUser(email, password, name) {
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      throw new Error('Email already registered');
+      throw new AppError('Email already registered', 400);
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -26,7 +27,6 @@ class AuthService {
       }
     });
 
-    // Create default categories and wallets for the new user
     await createDefaultCategories(user.id);
     await createDefaultWallets(user.id);
 
@@ -38,17 +38,16 @@ class AuthService {
   async loginUser(email, password) {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      throw new Error('Invalid credentials');
+      throw new AppError('Invalid credentials', 401);
     }
 
-    // Check if user registered with OAuth
     if (user.authProvider !== 'local' && !user.password) {
-      throw new Error(`This account is registered with ${user.authProvider}. Please use ${user.authProvider} to log in.`);
+      throw new AppError(`This account is registered with ${user.authProvider}. Please use ${user.authProvider} to log in.`, 401);
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      throw new Error('Invalid credentials');
+      throw new AppError('Invalid credentials', 401);
     }
 
     const token = this.generateToken(user.id);
@@ -78,7 +77,7 @@ class AuthService {
     });
 
     if (!user) {
-      throw new Error('User not found');
+      throw new AppError('User not found', 404);
     }
 
     return user;
@@ -87,11 +86,10 @@ class AuthService {
   async updateUserProfile(userId, { name, email, password }) {
     const updateData = {};
 
-    // Check if email is being changed and if it's already taken
     if (email) {
       const existingUser = await prisma.user.findUnique({ where: { email } });
       if (existingUser && existingUser.id !== userId) {
-        throw new Error('Email already in use');
+        throw new AppError('Email already in use', 400);
       }
       updateData.email = email;
     }

@@ -1,166 +1,195 @@
 import prisma from '../config/database.js';
+import AppError from '../utils/AppError.js';
 
 class DashboardService {
-  async getDashboardSummary(userId, { startDate, endDate }) {
-    const where = {
-      userId,
-      ...(startDate &&
-        endDate && {
-          date: {
-            gte: new Date(startDate),
-            lte: new Date(endDate)
-          }
-        })
-    };
+  async getDashboardSummary(userId, month, year) {
+    const currentDate = new Date();
+    const targetMonth = month ? parseInt(month) : currentDate.getMonth() + 1;
+    const targetYear = year ? parseInt(year) : currentDate.getFullYear();
 
-    const [incomeAggregate, expenseAggregate, totalWalletsBalance, expenseCount, expenses] = await Promise.all([
+    const startDate = new Date(targetYear, targetMonth - 1, 1);
+    const endDate = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
+
+    const [totalExpenses, expensesByCategory, recentExpenses, totalIncome, wallets] = await Promise.all([
+      // Total expenses for the month
       prisma.expense.aggregate({
-        where: { ...where, type: 'INCOME' },
+        where: {
+          userId,
+          date: { gte: startDate, lte: endDate },
+          type: 'EXPENSE'
+        },
         _sum: { amount: true }
       }),
-      prisma.expense.aggregate({
-        where: { ...where, type: 'EXPENSE' },
-        _sum: { amount: true }
+
+      // Expenses grouped by category
+      prisma.expense.groupBy({
+        by: ['categoryId'],
+        where: {
+          userId,
+          date: { gte: startDate, lte: endDate },
+          type: 'EXPENSE'
+        },
+        _sum: { amount: true },
+        orderBy: { _sum: { amount: 'desc' } }
       }),
-      prisma.wallet.aggregate({
-        where: { userId },
-        _sum: { balance: true }
-      }),
-      prisma.expense.count({ where: { ...where, type: 'EXPENSE' } }),
+
+      // Recent transactions (both income and expense)
       prisma.expense.findMany({
-        where: { ...where, type: { in: ['EXPENSE', 'INCOME'] } },
-        orderBy: { date: 'desc' },
+        where: { userId },
         include: {
-          category: true
-        }
+          category: { select: { id: true, name: true, color: true, icon: true } },
+          wallet: { select: { id: true, name: true, icon: true, color: true } }
+        },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        take: 5
+      }),
+
+      // Total income for the month
+      prisma.expense.aggregate({
+        where: {
+          userId,
+          date: { gte: startDate, lte: endDate },
+          type: 'INCOME'
+        },
+        _sum: { amount: true }
+      }),
+
+      // Get all wallets for current balance
+      prisma.wallet.findMany({
+        where: { userId },
+        select: { id: true, name: true, balance: true, icon: true, color: true },
+        orderBy: { createdAt: 'asc' }
       })
     ]);
 
-    const categoryBreakdown = expenses.reduce((acc, expense) => {
-      const categoryName = expense.category?.name || 'No Category';
-      const type = expense.type;
-      if (!acc[type]) {
-        acc[type] = {};
-      }
-      acc[type][categoryName] = (acc[type][categoryName] || 0) + expense.amount;
-      return acc;
-    }, { EXPENSE: {}, INCOME: {} });
+    // Enhance category data
+    let enhancedCategories = [];
+    if (expensesByCategory.length > 0) {
+      const categoryIds = expensesByCategory.map(item => item.categoryId);
+      const categories = await prisma.category.findMany({
+        where: { id: { in: categoryIds } }
+      });
 
-    const averageExpense = expenseCount > 0 ? (expenseAggregate._sum.amount || 0) / expenseCount : 0;
+      enhancedCategories = expensesByCategory.map(item => {
+        const category = categories.find(c => c.id === item.categoryId);
+        return {
+          id: category?.id,
+          name: category?.name || 'Uncategorized',
+          color: category?.color || '#9CA3AF',
+          icon: category?.icon || '📋',
+          amount: item._sum.amount
+        };
+      });
+    }
+
+    const totalBalance = wallets.reduce((sum, wallet) => sum + wallet.balance, 0);
+    const expenseSum = totalExpenses._sum.amount || 0;
+    const incomeSum = totalIncome._sum.amount || 0;
 
     return {
       summary: {
-        totalAmount: expenseAggregate._sum.amount || 0,
-        totalIncome: incomeAggregate._sum.amount || 0,
-        netBalance: totalWalletsBalance._sum.balance || 0,
-        totalCount: expenseCount,
-        averageExpense: parseFloat(averageExpense.toFixed(2)),
-        categoryBreakdown
-      }
+        totalBalance,
+        totalExpenses: expenseSum,
+        totalIncome: incomeSum,
+        savings: incomeSum - expenseSum
+      },
+      wallets,
+      expensesByCategory: enhancedCategories,
+      recentExpenses
     };
   }
 
-  async getCategoryAnalytics(userId, { startDate, endDate, type = 'EXPENSE' }) {
-    const where = {
-      userId,
-      type,
-      ...(startDate &&
-        endDate && {
-          date: {
-            gte: new Date(startDate),
-            lte: new Date(endDate)
-          }
-        })
-    };
+  async getCategoryAnalytics(userId, month, year) {
+    const currentDate = new Date();
+    const targetMonth = month ? parseInt(month) : currentDate.getMonth() + 1;
+    const targetYear = year ? parseInt(year) : currentDate.getFullYear();
 
-    const expenses = await prisma.expense.findMany({
-      where,
-      select: {
-        amount: true,
-        category: {
-          select: {
-            id: true,
-            name: true,
-            color: true,
-            icon: true
-          }
-        }
-      }
-    });
+    const startDate = new Date(targetYear, targetMonth - 1, 1);
+    const endDate = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
 
-    const analytics = expenses.reduce((acc, expense) => {
-      const categoryId = expense.category?.id || 'no-category';
-      if (!acc[categoryId]) {
-        acc[categoryId] = {
-          categoryId,
-          categoryName: expense.category?.name || 'No Category',
-          color: expense.category?.color || '#9CA3AF',
-          icon: expense.category?.icon || '📋',
-          totalAmount: 0,
-          count: 0
-        };
-      }
-      acc[categoryId].totalAmount += expense.amount;
-      acc[categoryId].count += 1;
-      return acc;
-    }, {});
-
-    const categoryAnalytics = Object.values(analytics).map(item => ({
-      ...item,
-      averageAmount: parseFloat((item.totalAmount / item.count).toFixed(2))
-    }));
-
-    return { categoryAnalytics };
-  }
-
-  async getMonthlyTrends(userId, { year = new Date().getFullYear() }) {
-    const transactions = await prisma.expense.findMany({
+    const expensesByCategory = await prisma.expense.groupBy({
+      by: ['categoryId'],
       where: {
         userId,
-        type: { in: ['EXPENSE', 'INCOME'] },
-        date: {
-          gte: new Date(`${year}-01-01`),
-          lte: new Date(`${year}-12-31`)
-        }
+        date: { gte: startDate, lte: endDate },
+        type: 'EXPENSE'
       },
-      orderBy: { date: 'asc' }
+      _sum: { amount: true },
+      orderBy: { _sum: { amount: 'desc' } }
     });
 
-    const monthlyData = Array.from({ length: 12 }, (_, i) => ({
-      month: i + 1,
-      monthName: new Date(year, i).toLocaleString('default', { month: 'long' }),
-      totalAmount: 0,
-      totalExpenses: 0,
-      totalIncome: 0,
-      count: 0,
-      expenseCount: 0,
-      incomeCount: 0
-    }));
+    let enhancedCategories = [];
+    if (expensesByCategory.length > 0) {
+      const categoryIds = expensesByCategory.map(item => item.categoryId);
+      const categories = await prisma.category.findMany({
+        where: { id: { in: categoryIds } }
+      });
 
-    transactions.forEach(tx => {
-      const month = new Date(tx.date).getMonth();
-      monthlyData[month].count += 1;
-      if (tx.type === 'INCOME') {
-        monthlyData[month].totalIncome += tx.amount;
-        monthlyData[month].incomeCount += 1;
-      } else {
-        monthlyData[month].totalExpenses += tx.amount;
-        monthlyData[month].totalAmount += tx.amount;
-        monthlyData[month].expenseCount += 1;
-      }
-    });
+      enhancedCategories = expensesByCategory.map(item => {
+        const category = categories.find(c => c.id === item.categoryId);
+        return {
+          id: category?.id,
+          name: category?.name || 'Uncategorized',
+          color: category?.color || '#9CA3AF',
+          icon: category?.icon || '📋',
+          amount: item._sum.amount
+        };
+      });
+    }
 
-    return { trends: monthlyData };
+    return { categoryAnalytics: enhancedCategories };
   }
 
-  async getRecentExpenses(userId, { limit = 5 }) {
+  async getMonthlyTrends(userId, months = 6) {
+    const currentDate = new Date();
+    const trends = [];
+
+    for (let i = months - 1; i >= 0; i--) {
+      const targetDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - i, 1);
+      const startOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth(), 1);
+      const endOfMonth = new Date(targetDate.getFullYear(), targetDate.getMonth() + 1, 0, 23, 59, 59, 999);
+
+      const [expenseResult, incomeResult] = await Promise.all([
+        prisma.expense.aggregate({
+          where: {
+            userId,
+            date: { gte: startOfMonth, lte: endOfMonth },
+            type: 'EXPENSE'
+          },
+          _sum: { amount: true }
+        }),
+        prisma.expense.aggregate({
+          where: {
+            userId,
+            date: { gte: startOfMonth, lte: endOfMonth },
+            type: 'INCOME'
+          },
+          _sum: { amount: true }
+        })
+      ]);
+
+      const monthName = targetDate.toLocaleString('default', { month: 'short' });
+      
+      trends.push({
+        month: monthName,
+        year: targetDate.getFullYear(),
+        expense: expenseResult._sum.amount || 0,
+        income: incomeResult._sum.amount || 0
+      });
+    }
+
+    return { trends };
+  }
+
+  async getRecentExpenses(userId, limit = 10) {
     const expenses = await prisma.expense.findMany({
       where: { userId },
-      orderBy: { date: 'desc' },
-      take: parseInt(limit),
       include: {
-        category: true
-      }
+        category: { select: { id: true, name: true, color: true, icon: true } },
+        wallet: { select: { id: true, name: true, icon: true, color: true } }
+      },
+      orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+      take: parseInt(limit)
     });
 
     return { expenses };

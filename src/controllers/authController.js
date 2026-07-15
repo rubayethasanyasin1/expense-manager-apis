@@ -1,163 +1,125 @@
 import { validationResult } from 'express-validator';
-import logger from '../config/logger.js';
+import passport from 'passport';
 import authService from '../services/authService.js';
-import passport from '../config/passport.js';
+import catchAsync from '../utils/catchAsync.js';
+import AppError from '../utils/AppError.js';
 
-const register = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const { email, password, name } = req.body;
-    const { user, token } = await authService.registerUser(email, password, name);
-
-    res.status(201).json({
-      message: 'User registered successfully',
-      user,
-      token
-    });
-  } catch (error) {
-    if (error.message === 'Email already registered') {
-      return res.status(400).json({ error: error.message });
-    }
-    logger.logError(error, null, { context: 'user-registration' });
-    res.status(500).json({ error: 'Internal server error' });
+export const register = catchAsync(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    throw new AppError('Validation Error', 400); // Or handle it explicitly if you want validation arrays
   }
-};
 
-const login = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const { email, password } = req.body;
-    const { user, token } = await authService.loginUser(email, password);
-
-    res.json({
-      message: 'Login successful',
-      user,
-      token
-    });
-  } catch (error) {
-    if (error.message === 'Invalid credentials' || error.message.includes('registered with')) {
-      return res.status(401).json({ error: error.message });
-    }
-    logger.logError(error, null, { context: 'user-login' });
-    res.status(500).json({ error: 'Internal server error' });
+  // To keep validation array in the response, we can just do:
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
   }
-};
 
-const getProfile = async (req, res) => {
-  try {
-    const user = await authService.getUserProfile(req.userId);
-    res.json(user);
-  } catch (error) {
-    if (error.message === 'User not found') {
-      return res.status(404).json({ error: error.message });
-    }
-    logger.logError(error, null, { context: 'get-user-profile' });
-    res.status(500).json({ error: 'Internal server error' });
+  const { email, password, name } = req.body;
+  const { user, token } = await authService.registerUser(email, password, name);
+
+  res.status(201).json({
+    message: 'User registered successfully',
+    user,
+    token
+  });
+});
+
+export const login = catchAsync(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
   }
-};
 
-const updateProfile = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+  const { email, password } = req.body;
+  const { user, token } = await authService.loginUser(email, password);
 
-    const { name, email, password } = req.body;
-    const user = await authService.updateUserProfile(req.userId, { name, email, password });
+  res.json({
+    message: 'Login successful',
+    user,
+    token
+  });
+});
 
-    res.json({
-      message: 'Profile updated successfully',
-      user
-    });
-  } catch (error) {
-    if (error.message === 'Email already in use') {
-      return res.status(400).json({ error: error.message });
-    }
-    logger.logError(error, null, { context: 'update-user-profile' });
-    res.status(500).json({ error: 'Internal server error' });
+export const getProfile = catchAsync(async (req, res) => {
+  const user = await authService.getUserProfile(req.userId);
+  res.json({ user });
+});
+
+export const updateProfile = catchAsync(async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
   }
-};
 
-// Google OAuth Handlers
-const googleAuth = (req, res, next) => {
-  const state = req.query.redirectUrl ? Buffer.from(req.query.redirectUrl).toString('base64') : undefined;
+  const user = await authService.updateUserProfile(req.userId, req.body);
+  res.json({
+    message: 'Profile updated successfully',
+    user
+  });
+});
+
+export const googleAuth = (req, res, next) => {
+  // Pass state parameter if provided
+  const state = req.query.returnTo 
+    ? Buffer.from(JSON.stringify({ returnTo: req.query.returnTo })).toString('base64') 
+    : undefined;
+
   const dynamicCallbackUrl = `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
 
   passport.authenticate('google', {
     scope: ['profile', 'email'],
-    state: state,
+    session: false,
+    state,
     callbackURL: dynamicCallbackUrl
   })(req, res, next);
 };
 
-const googleAuthCallbackMiddleware = (req, res, next) => {
+export const googleFailure = (req, res) => {
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+  res.redirect(`${frontendUrl}/auth/error?message=Authentication failed`);
+};
+
+export const googleAuthCallbackMiddleware = (req, res, next) => {
   const dynamicCallbackUrl = `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
   
   passport.authenticate('google', {
-    failureRedirect: '/api/v1/auth/google/failure',
     session: false,
     callbackURL: dynamicCallbackUrl
+  }, (err, user) => {
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    
+    if (err || !user) {
+      // Redirect to frontend error page on failure or internal error
+      return res.redirect(`${frontendUrl}/auth/error?message=Authentication failed`);
+    }
+
+    req.user = user;
+    next();
   })(req, res, next);
 };
 
-const googleCallback = async (req, res) => {
-  try {
-    const user = req.user;
-    const token = authService.generateToken(user.id);
+export const googleCallback = catchAsync(async (req, res) => {
+  const user = req.user;
+  const token = authService.generateToken(user.id);
 
-    let frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    let redirectPath = '/auth/callback';
-
-    if (req.query.state) {
-      try {
-        const decodedState = Buffer.from(req.query.state, 'base64').toString('ascii');
-        console.log('Google Auth - Decoded state (redirect URL):', decodedState);
-        
-        if (decodedState && (decodedState.startsWith('exp://') || decodedState.startsWith('http') || decodedState.includes('://'))) {
-          const separator = decodedState.includes('?') ? '&' : '?';
-          const redirectUrl = `${decodedState}${separator}token=${token}`;
-          console.log('Google Auth - Redirecting to Expo App:', redirectUrl);
-          return res.redirect(redirectUrl);
-        } else {
-          console.log('Google Auth - Invalid state URL format, falling back to web URL');
-        }
-      } catch (err) {
-        console.error('Google Auth - Error decoding state:', err);
-      }
-    } else {
-      console.log('Google Auth - No state parameter received, falling back to web URL');
-    }
-
-    const redirectUrl = `${frontendUrl}${redirectPath}?token=${token}`;
-    res.redirect(redirectUrl);
-  } catch (error) {
-    logger.logError(error, null, { context: 'google-oauth-callback' });
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-    res.redirect(`${frontendUrl}/auth/error?message=Authentication failed`);
-  }
-};
-
-const googleFailure = (req, res) => {
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-  res.redirect(`${frontendUrl}/auth/error?message=Google authentication failed`);
-};
+  
+  const state = req.query.state;
+  let redirectPath = '/dashboard';
+  
+  if (state) {
+    try {
+      const decodedState = Buffer.from(state, 'base64').toString('utf-8');
+      const stateObj = JSON.parse(decodedState);
+      if (stateObj.returnTo) {
+        redirectPath = stateObj.returnTo;
+      }
+    } catch (e) {
+      console.log('Error decoding state parameter:', e.message);
+    }
+  }
 
-export { 
-  register, 
-  login, 
-  getProfile, 
-  updateProfile, 
-  googleAuth, 
-  googleAuthCallbackMiddleware, 
-  googleCallback, 
-  googleFailure 
-};
+  const redirectUrl = `${frontendUrl}${redirectPath}?token=${token}`;
+  res.redirect(redirectUrl);
+});

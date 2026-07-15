@@ -1,6 +1,12 @@
 import express from 'express';
 import { body } from 'express-validator';
-import categoryController from '../controllers/categoryController.js';
+import {
+  createCategory,
+  getCategories,
+  getCategoryById,
+  updateCategory,
+  deleteCategory
+} from '../controllers/categoryController.js';
 import authMiddleware from '../middleware/auth.js';
 
 const router = express.Router();
@@ -26,12 +32,12 @@ router.post(
       .isLength({ max: 50 })
       .withMessage('Icon must be less than 50 characters')
   ],
-  categoryController.createCategory
+  createCategory
 );
 
-router.get('/', categoryController.getCategories);
+router.get('/', getCategories);
 
-router.get('/:id', categoryController.getCategoryById);
+router.get('/:id', getCategoryById);
 
 router.put(
   '/:id',
@@ -51,9 +57,9 @@ router.put(
       .isLength({ max: 50 })
       .withMessage('Icon must be less than 50 characters')
   ],
-  categoryController.updateCategory
+  updateCategory
 );
 
-router.delete('/:id', categoryController.deleteCategory);
+router.delete('/:id', deleteCategory);
 
 export default router;
