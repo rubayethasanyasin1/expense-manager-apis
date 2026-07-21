@@ -5,7 +5,15 @@ class CategoryService {
   async getCategories(userId) {
     const categories = await prisma.category.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' }
+      include: {
+        _count: {
+          select: { expenses: true }
+        }
+      },
+      orderBy: [
+        { expenses: { _count: 'desc' } },
+        { createdAt: 'desc' }
+      ]
     });
     return { categories };
   }
